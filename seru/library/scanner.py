@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 from ..database.repository import LibraryRepository
 from ..media.ffprobe import MediaMetadata, probe_media
-from .parser import VIDEO_EXTENSIONS, is_season_folder, parse_media_file
+from .parser import VIDEO_EXTENSIONS, discover_show_dirs, parse_media_file
 
 @dataclass
 class ScanResult:
@@ -26,9 +26,10 @@ class LibraryScanner:
         result, seen_paths = ScanResult(), set()
         self.repository.begin_scan(self.location_id, self.library_root)
         try:
-            for file_path in self.library_root.rglob("*"):
-                if file_path.is_file() and file_path.suffix.lower() in VIDEO_EXTENSIONS:
-                    self._scan_file(file_path, self._anime_dir_for(file_path), seen_paths, result)
+            for anime_dir in discover_show_dirs(self.library_root):
+                for file_path in anime_dir.rglob("*"):
+                    if file_path.is_file() and file_path.suffix.lower() in VIDEO_EXTENSIONS:
+                        self._scan_file(file_path, anime_dir, seen_paths, result)
         except (OSError, PermissionError) as error:
             result.errors += 1
             print(f"Warning: could not walk {self.library_root}: {error}")
@@ -60,12 +61,3 @@ class LibraryScanner:
         except Exception as error:  # Stat/parse/database failures are isolated per file too.
             result.errors += 1
             print(f"Warning: could not index {file_path}: {error}")
-
-    def _anime_dir_for(self, file_path: Path) -> Path:
-        """Find the show folder below organizational buckets in this library layout."""
-        for parent in file_path.parents:
-            if parent == self.library_root:
-                break
-            if is_season_folder(parent.name) and parent.parent != self.library_root:
-                return parent.parent
-        return file_path.parent

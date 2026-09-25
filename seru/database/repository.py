@@ -34,3 +34,45 @@ class LibraryRepository:
     def counts(self, location_id: str) -> dict[str, int]:
         row = self.connection.execute("SELECT COUNT(*) files, COUNT(DISTINCT e.anime_id) titles, COALESCE(SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END), 0) episodes, COALESCE(SUM(CASE WHEN e.is_movie = 1 THEN 1 ELSE 0 END), 0) movies, COALESCE(SUM(CASE WHEN e.needs_review = 1 THEN 1 ELSE 0 END), 0) needs_review FROM media_files m JOIN episodes e ON e.episode_id=m.episode_id WHERE m.location_id = ?", (location_id,)).fetchone()
         return dict(row)
+
+    def list_anime(self, location_id: str, search: str = "") -> list[sqlite3.Row]:
+        """Return library rows from the cache; never inspect the filesystem."""
+        term = f"%{search.strip()}%"
+        return self.connection.execute(
+            """SELECT a.anime_id, a.title,
+                      COUNT(m.media_file_id) AS file_count,
+                      SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END) AS episode_count,
+                      SUM(CASE WHEN e.is_movie = 1 THEN 1 ELSE 0 END) AS movie_count,
+                      SUM(m.file_size) AS total_size
+               FROM anime a
+               JOIN episodes e ON e.anime_id = a.anime_id
+               JOIN media_files m ON m.episode_id = e.episode_id
+               WHERE m.location_id = ? AND a.title LIKE ?
+               GROUP BY a.anime_id
+               ORDER BY a.title COLLATE NOCASE""",
+            (location_id, term),
+        ).fetchall()
+
+    def anime_detail(self, anime_id: int, location_id: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            """SELECT a.anime_id, a.title, COUNT(m.media_file_id) AS file_count,
+                      SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END) AS episode_count,
+                      SUM(CASE WHEN e.is_movie = 1 THEN 1 ELSE 0 END) AS movie_count,
+                      SUM(m.file_size) AS total_size
+               FROM anime a JOIN episodes e ON e.anime_id = a.anime_id
+               JOIN media_files m ON m.episode_id = e.episode_id
+               WHERE a.anime_id = ? AND m.location_id = ?
+               GROUP BY a.anime_id""",
+            (anime_id, location_id),
+        ).fetchone()
+
+    def anime_episodes(self, anime_id: int, location_id: str) -> list[sqlite3.Row]:
+        return self.connection.execute(
+            """SELECT e.season_number, e.episode_number, e.is_movie, e.needs_review,
+                      e.review_reason, m.relative_path, m.duration_seconds, m.height
+               FROM episodes e JOIN media_files m ON m.episode_id = e.episode_id
+               WHERE e.anime_id = ? AND m.location_id = ?
+               ORDER BY e.is_movie, e.season_number IS NULL, e.season_number,
+                        e.episode_number IS NULL, e.episode_number, m.relative_path""",
+            (anime_id, location_id),
+        ).fetchall()
