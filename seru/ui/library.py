@@ -29,12 +29,35 @@ class LibraryPage(Gtk.Box):
         clamp = Adw.Clamp(maximum_size=960, tightening_threshold=600)
         clamp.set_child(self.list_box)
         scroll.set_child(clamp)
-        self.append(scroll)
+        self.content = Gtk.Stack(vexpand=True)
+        self.content.add_named(scroll, "results")
+
+        empty_page = Adw.StatusPage(
+            icon_name="folder-symbolic",
+            title="No titles to show",
+            description="Rescan the library after choosing a folder with anime files.",
+        )
+        self.empty_title = empty_page
+        self.content.add_named(empty_page, "empty")
+        self.append(self.content)
     def reload(self, search: str = "") -> None:
         while child := self.list_box.get_first_child(): self.list_box.remove(child)
         repository = LibraryRepository(self.database_path)
         try: rows = repository.list_anime("default", search)
         finally: repository.close()
+        if not rows:
+            if search.strip():
+                self.count_label.set_label("No matching titles")
+                self.empty_title.set_title("No matching titles")
+                self.empty_title.set_description("Try a different search, or clear the search field.")
+            else:
+                self.count_label.set_label("No titles indexed")
+                self.empty_title.set_title("No titles to show")
+                self.empty_title.set_description("Rescan the library after choosing a folder with anime files.")
+            self.content.set_visible_child_name("empty")
+            return
+
+        self.content.set_visible_child_name("results")
         self.count_label.set_label(f"{len(rows)} title{'s' if len(rows) != 1 else ''}")
         for anime in rows:
             row = Adw.ActionRow(title=anime["title"], activatable=True)

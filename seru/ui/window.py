@@ -55,6 +55,7 @@ class SeruWindow(Adw.ApplicationWindow):
         self.show_library()
     def show_library(self) -> None:
         self.search.set_visible(True)
+        self.search.grab_focus_without_selecting()
         self.library_page.reload(self.search.get_text())
         self.stack.set_visible_child_name("library")
     def show_anime(self, anime_id: int) -> None:
@@ -67,6 +68,7 @@ class SeruWindow(Adw.ApplicationWindow):
         if self._rescan_running: return
         self._rescan_running = True
         self.rescan_button.set_sensitive(False)
+        self.search.set_sensitive(False)
         self.status.set_label("Scanning library…")
         threading.Thread(target=self._rescan_worker, name="seru-library-scan", daemon=True).start()
     def _rescan_worker(self) -> None:
@@ -80,8 +82,19 @@ class SeruWindow(Adw.ApplicationWindow):
     def _finish_rescan(self, result: object | None, error: str | None) -> bool:
         self._rescan_running = False
         self.rescan_button.set_sensitive(True)
-        if error: self.status.set_label("Scan failed")
+        self.search.set_sensitive(True)
+        if error:
+            self.status.set_label("Scan failed")
+            self.status.set_tooltip_text(error)
         else:
-            self.status.set_label(f"Updated · {result.scanned} files")
+            self.status.set_tooltip_text(None)
+            details = [f"{result.scanned} files indexed"]
+            if result.probed:
+                details.append(f"{result.probed} metadata checks")
+            if result.stale_removed:
+                details.append(f"{result.stale_removed} removed")
+            if result.errors:
+                details.append(f"{result.errors} with errors")
+            self.status.set_label("Updated · " + " · ".join(details))
             self.show_library()
         return False
