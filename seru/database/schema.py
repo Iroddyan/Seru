@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS anime (
 );
 CREATE TABLE IF NOT EXISTS episodes (
  episode_id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL REFERENCES anime(anime_id) ON DELETE CASCADE,
- season_number INTEGER, episode_number INTEGER, is_movie INTEGER NOT NULL DEFAULT 0,
+ season_number INTEGER, episode_number INTEGER, episode_end_number INTEGER, is_movie INTEGER NOT NULL DEFAULT 0,
  needs_review INTEGER NOT NULL DEFAULT 0, review_reason TEXT
 );
 CREATE TABLE IF NOT EXISTS media_files (

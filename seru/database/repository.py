@@ -11,14 +11,18 @@ class LibraryRepository:
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
         self.connection.executescript(SCHEMA_SQL)
+        episode_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(episodes)")}
+        if "episode_end_number" not in episode_columns:
+            self.connection.execute("ALTER TABLE episodes ADD COLUMN episode_end_number INTEGER")
+        self.connection.commit()
     def close(self) -> None: self.connection.close()
     def begin_scan(self, location_id: str, root_path: Path) -> None:
         self.connection.execute("INSERT INTO library_locations(location_id, root_path) VALUES(?, ?) ON CONFLICT(location_id) DO UPDATE SET root_path=excluded.root_path, updated_at=CURRENT_TIMESTAMP", (location_id, str(root_path.resolve())))
     def existing_file(self, location_id: str, relative_path: str) -> sqlite3.Row | None:
         return self.connection.execute("SELECT * FROM media_files WHERE location_id = ? AND relative_path = ?", (location_id, relative_path)).fetchone()
-    def save_file(self, location_id: str, relative_path: str, *, title: str, title_key: str, season_number: int | None, episode_number: int | None, is_movie: bool, needs_review: bool, review_reason: str | None, file_size: int, modified_ns: int, metadata: object | None, probe_status: str, probe_error: str | None) -> None:
+    def save_file(self, location_id: str, relative_path: str, *, title: str, title_key: str, season_number: int | None, episode_number: int | None, episode_end_number: int | None, is_movie: bool, needs_review: bool, review_reason: str | None, file_size: int, modified_ns: int, metadata: object | None, probe_status: str, probe_error: str | None) -> None:
         anime_id = self.connection.execute("INSERT INTO anime(title, title_key, needs_review) VALUES (?, ?, ?) ON CONFLICT(title_key) DO UPDATE SET needs_review=MAX(anime.needs_review, excluded.needs_review) RETURNING anime_id", (title, title_key, int(needs_review))).fetchone()[0]
-        episode_id = self.connection.execute("INSERT INTO episodes(anime_id, season_number, episode_number, is_movie, needs_review, review_reason) VALUES (?, ?, ?, ?, ?, ?) RETURNING episode_id", (anime_id, season_number, episode_number, int(is_movie), int(needs_review), review_reason)).fetchone()[0]
+        episode_id = self.connection.execute("INSERT INTO episodes(anime_id, season_number, episode_number, episode_end_number, is_movie, needs_review, review_reason) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING episode_id", (anime_id, season_number, episode_number, episode_end_number, int(is_movie), int(needs_review), review_reason)).fetchone()[0]
         values = (None, None, None, None, None) if metadata is None else (metadata.video_codec, metadata.audio_codec, metadata.width, metadata.height, metadata.duration_seconds)
         previous = self.existing_file(location_id, relative_path)
         if previous is not None: self.connection.execute("DELETE FROM media_files WHERE media_file_id = ?", (previous["media_file_id"],))
@@ -79,7 +83,7 @@ class LibraryRepository:
 
     def anime_episodes(self, anime_id: int, location_id: str) -> list[sqlite3.Row]:
         return self.connection.execute(
-            """SELECT e.episode_id, e.season_number, e.episode_number, e.is_movie, e.needs_review,
+            """SELECT e.episode_id, e.season_number, e.episode_number, e.episode_end_number, e.is_movie, e.needs_review,
                       e.review_reason, m.relative_path, m.duration_seconds, m.height
                FROM episodes e JOIN media_files m ON m.episode_id = e.episode_id
                WHERE e.anime_id = ? AND m.location_id = ?

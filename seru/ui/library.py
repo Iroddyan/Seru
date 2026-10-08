@@ -124,6 +124,8 @@ class AnimeDetailPage(Gtk.Box):
             elif episode["needs_review"]: title = "Unknown / Needs Review"
             elif episode["season_number"] is None: title = f"Episode {episode['episode_number']:03d}"
             else: title = f"Season {episode['season_number']} · Episode {episode['episode_number']:03d}"
+            if episode["episode_end_number"] is not None:
+                title += f"–{episode['episode_end_number']:03d}"
             details = []
             if episode["height"]: details.append(f"{episode['height']}p")
             if episode["duration_seconds"]: details.append(f"{round(episode['duration_seconds'] / 60)} min")
