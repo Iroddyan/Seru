@@ -55,7 +55,6 @@ class SeruWindow(Adw.ApplicationWindow):
         self.show_library()
     def show_library(self) -> None:
         self.search.set_visible(True)
-        self.search.grab_focus_without_selecting()
         self.library_page.reload(self.search.get_text())
         self.stack.set_visible_child_name("library")
     def show_anime(self, anime_id: int) -> None:
