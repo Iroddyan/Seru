@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import gi
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 from ..database.repository import LibraryRepository
 from ..media.player import CelluloidBackend, PlayerBackend
 
@@ -14,6 +14,10 @@ def format_size(value: int | None) -> str:
         if size < 1024 or unit == "TiB": return f"{int(size)} B" if unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
     return "0 B"
+
+def subtitle_markup(value: str) -> str:
+    """Escape filesystem-derived text for Adw.ActionRow's markup subtitle."""
+    return GLib.markup_escape_text(value)
 
 class LibraryPage(Gtk.Box):
     """The title list; it only reads SQLite and never walks the library."""
@@ -67,7 +71,7 @@ class LibraryPage(Gtk.Box):
             if anime["episode_count"]: parts.append(f"{anime['episode_count']} episode{'s' if anime['episode_count'] != 1 else ''}")
             if anime["movie_count"]: parts.append(f"{anime['movie_count']} movie{'s' if anime['movie_count'] != 1 else ''}")
             parts.append(format_size(anime["total_size"]))
-            row.set_subtitle(" · ".join(parts))
+            row.set_subtitle(subtitle_markup(" · ".join(parts)))
             row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
             self.list_box.append(row)
     def _on_row_activated(self, _list_box: Gtk.ListBox, row: Adw.ActionRow) -> None:
@@ -130,7 +134,7 @@ class AnimeDetailPage(Gtk.Box):
             if episode["height"]: details.append(f"{episode['height']}p")
             if episode["duration_seconds"]: details.append(f"{round(episode['duration_seconds'] / 60)} min")
             details.append(episode["relative_path"])
-            row = Adw.ActionRow(title=title, subtitle=" · ".join(details))
+            row = Adw.ActionRow(title=title, subtitle=subtitle_markup(" · ".join(details)))
             play_button = Gtk.Button(
                 icon_name="media-playback-start-symbolic",
                 tooltip_text="Play in Celluloid",

@@ -50,6 +50,43 @@ class LibraryRepository:
         row = self.connection.execute("SELECT COUNT(*) files, COUNT(DISTINCT e.anime_id) titles, COALESCE(SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END), 0) episodes, COALESCE(SUM(CASE WHEN e.is_movie = 1 THEN 1 ELSE 0 END), 0) movies, COALESCE(SUM(CASE WHEN e.needs_review = 1 THEN 1 ELSE 0 END), 0) needs_review FROM media_files m JOIN episodes e ON e.episode_id=m.episode_id WHERE m.location_id = ?", (location_id,)).fetchone()
         return dict(row)
 
+    def library_statistics(self, location_id: str) -> tuple[sqlite3.Row, list[sqlite3.Row], list[sqlite3.Row]]:
+        """Aggregate the local index for the Statistics page only.
+
+        No filesystem walk or media probing happens here.  Screen time uses
+        the same pragmatic estimates as anime_smart_list.sh: 24 minutes per
+        episode and 110 minutes per movie.
+        """
+        summary = self.connection.execute(
+            """SELECT COUNT(DISTINCT e.anime_id) AS titles,
+                      COALESCE(SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END), 0) AS episodes,
+                      COALESCE(SUM(CASE WHEN e.is_movie = 1 THEN 1 ELSE 0 END), 0) AS movies,
+                      COALESCE(SUM(m.file_size), 0) AS total_size
+               FROM media_files AS m
+               JOIN episodes AS e ON e.episode_id = m.episode_id
+               WHERE m.location_id = ?""",
+            (location_id,),
+        ).fetchone()
+        codecs = self.connection.execute(
+            """SELECT COALESCE(m.video_codec, 'unknown') AS label, COUNT(*) AS file_count,
+                      COALESCE(SUM(m.file_size), 0) AS total_size
+               FROM media_files AS m
+               WHERE m.location_id = ?
+               GROUP BY COALESCE(m.video_codec, 'unknown')
+               ORDER BY file_count DESC, label COLLATE NOCASE""",
+            (location_id,),
+        ).fetchall()
+        resolutions = self.connection.execute(
+            """SELECT CASE WHEN m.height IS NULL THEN 'unknown' ELSE CAST(m.height AS TEXT) || 'p' END AS label,
+                      COUNT(*) AS file_count, COALESCE(SUM(m.file_size), 0) AS total_size
+               FROM media_files AS m
+               WHERE m.location_id = ?
+               GROUP BY CASE WHEN m.height IS NULL THEN 'unknown' ELSE CAST(m.height AS TEXT) || 'p' END
+               ORDER BY CASE WHEN m.height IS NULL THEN 0 ELSE m.height END DESC, label""",
+            (location_id,),
+        ).fetchall()
+        return summary, codecs, resolutions
+
     def list_anime(self, location_id: str, search: str = "") -> list[sqlite3.Row]:
         """Return library rows from the cache; never inspect the filesystem."""
         term = f"%{search.strip()}%"

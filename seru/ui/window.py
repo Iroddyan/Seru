@@ -10,6 +10,7 @@ from ..database.repository import LibraryRepository
 from ..library.scan import DEFAULT_LIBRARY_ROOT, default_database_path
 from ..library.scanner import LibraryScanner
 from .library import AnimeDetailPage, LibraryPage
+from .statistics import StatisticsPage
 
 class SeruWindow(Adw.ApplicationWindow):
     """A GNOME library browser with a worker-thread-only rescan action."""
@@ -38,17 +39,23 @@ class SeruWindow(Adw.ApplicationWindow):
         sidebar.append(label)
         navigation = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         library_row = Adw.ActionRow(title="Library", icon_name="folder-symbolic", activatable=True)
+        library_row.view_name = "library"
+        statistics_row = Adw.ActionRow(title="Statistics", icon_name="view-list-symbolic", activatable=True)
+        statistics_row.view_name = "statistics"
         navigation.append(library_row)
+        navigation.append(statistics_row)
         navigation.select_row(library_row)
-        navigation.connect("row-selected", lambda _box, _row: self.show_library())
+        navigation.connect("row-selected", self._on_navigation_selected)
         sidebar.append(navigation)
         root.append(sidebar)
         root.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         self.stack = Gtk.Stack(vexpand=True, hexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.library_page = LibraryPage(self.database_path, self.show_anime)
         self.detail_page = AnimeDetailPage(self.database_path, self.library_root, self.show_library)
+        self.statistics_page = StatisticsPage(self.database_path)
         self.stack.add_named(self.library_page, "library")
         self.stack.add_named(self.detail_page, "detail")
+        self.stack.add_named(self.statistics_page, "statistics")
         root.append(self.stack)
         toolbar.set_content(root)
         self.set_content(toolbar)
@@ -61,6 +68,15 @@ class SeruWindow(Adw.ApplicationWindow):
         self.search.set_visible(False)
         self.detail_page.show_anime(anime_id)
         self.stack.set_visible_child_name("detail")
+    def show_statistics(self) -> None:
+        self.search.set_visible(False)
+        self.statistics_page.reload()
+        self.stack.set_visible_child_name("statistics")
+    def _on_navigation_selected(self, _box: Gtk.ListBox, row: Adw.ActionRow | None) -> None:
+        if row is not None and row.view_name == "statistics":
+            self.show_statistics()
+        else:
+            self.show_library()
     def _on_search_changed(self, _entry: Gtk.SearchEntry) -> None:
         if self.stack.get_visible_child_name() == "library": self.library_page.reload(self.search.get_text())
     def _start_rescan(self, _button: Gtk.Button) -> None:
