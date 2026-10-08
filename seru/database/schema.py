@@ -19,6 +19,13 @@ CREATE TABLE IF NOT EXISTS media_files (
  duration_seconds REAL, probe_status TEXT NOT NULL DEFAULT 'pending', probe_error TEXT,
  UNIQUE(location_id, relative_path)
 );
+CREATE TABLE IF NOT EXISTS launches (
+ launch_id INTEGER PRIMARY KEY,
+ anime_id INTEGER NOT NULL REFERENCES anime(anime_id) ON DELETE CASCADE,
+ episode_id INTEGER NOT NULL REFERENCES episodes(episode_id) ON DELETE CASCADE,
+ timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE INDEX IF NOT EXISTS media_files_location_path_idx ON media_files(location_id, relative_path);
 CREATE INDEX IF NOT EXISTS episodes_anime_idx ON episodes(anime_id);
+CREATE INDEX IF NOT EXISTS launches_anime_timestamp_idx ON launches(anime_id, timestamp DESC);
 """

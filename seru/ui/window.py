@@ -46,7 +46,7 @@ class SeruWindow(Adw.ApplicationWindow):
         root.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         self.stack = Gtk.Stack(vexpand=True, hexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.library_page = LibraryPage(self.database_path, self.show_anime)
-        self.detail_page = AnimeDetailPage(self.database_path, self.show_library)
+        self.detail_page = AnimeDetailPage(self.database_path, self.library_root, self.show_library)
         self.stack.add_named(self.library_page, "library")
         self.stack.add_named(self.detail_page, "detail")
         root.append(self.stack)

@@ -31,6 +31,17 @@ class LibraryRepository:
         self.connection.execute("DELETE FROM anime WHERE anime_id NOT IN (SELECT anime_id FROM episodes)")
         return len(stale_ids)
     def commit(self) -> None: self.connection.commit()
+    def record_launch(self, anime_id: int, episode_id: int) -> None:
+        """Persist a user-initiated playback attempt owned by Seru.
+
+        This deliberately does not read Celluloid or mpv resume state.  It is
+        the small, reliable history used by the later Home view.
+        """
+        self.connection.execute(
+            "INSERT INTO launches(anime_id, episode_id) VALUES (?, ?)",
+            (anime_id, episode_id),
+        )
+        self.connection.commit()
     def counts(self, location_id: str) -> dict[str, int]:
         row = self.connection.execute("SELECT COUNT(*) files, COUNT(DISTINCT e.anime_id) titles, COALESCE(SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END), 0) episodes, COALESCE(SUM(CASE WHEN e.is_movie = 1 THEN 1 ELSE 0 END), 0) movies, COALESCE(SUM(CASE WHEN e.needs_review = 1 THEN 1 ELSE 0 END), 0) needs_review FROM media_files m JOIN episodes e ON e.episode_id=m.episode_id WHERE m.location_id = ?", (location_id,)).fetchone()
         return dict(row)
@@ -68,7 +79,7 @@ class LibraryRepository:
 
     def anime_episodes(self, anime_id: int, location_id: str) -> list[sqlite3.Row]:
         return self.connection.execute(
-            """SELECT e.season_number, e.episode_number, e.is_movie, e.needs_review,
+            """SELECT e.episode_id, e.season_number, e.episode_number, e.is_movie, e.needs_review,
                       e.review_reason, m.relative_path, m.duration_seconds, m.height
                FROM episodes e JOIN media_files m ON m.episode_id = e.episode_id
                WHERE e.anime_id = ? AND m.location_id = ?

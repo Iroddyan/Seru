@@ -5,6 +5,7 @@ import gi
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 from ..database.repository import LibraryRepository
+from ..media.player import CelluloidBackend, PlayerBackend
 
 def format_size(value: int | None) -> str:
     if not value: return "0 B"
@@ -74,9 +75,12 @@ class LibraryPage(Gtk.Box):
 
 class AnimeDetailPage(Gtk.Box):
     """A cached title summary followed by its indexed files."""
-    def __init__(self, database_path: Path, on_back: object) -> None:
+    def __init__(self, database_path: Path, library_root: Path, on_back: object,
+                 player_backend: PlayerBackend | None = None) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.database_path, self.on_back = database_path, on_back
+        self.database_path, self.library_root, self.on_back = database_path, library_root, on_back
+        self.player_backend = player_backend or CelluloidBackend()
+        self.anime_id: int | None = None
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
         back_button = Gtk.Button(icon_name="go-previous-symbolic", tooltip_text="Back to Library")
@@ -89,6 +93,9 @@ class AnimeDetailPage(Gtk.Box):
         self.stats_label = Gtk.Label(xalign=0, wrap=True, margin_top=18, margin_bottom=12, margin_start=18, margin_end=18)
         self.stats_label.add_css_class("dim-label")
         content.append(self.stats_label)
+        self.playback_status = Gtk.Label(xalign=0, wrap=True, margin_bottom=12, margin_start=18, margin_end=18)
+        self.playback_status.add_css_class("dim-label")
+        content.append(self.playback_status)
         self.episodes = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.episodes.add_css_class("boxed-list")
         clamp = Adw.Clamp(maximum_size=960, tightening_threshold=600)
@@ -99,6 +106,8 @@ class AnimeDetailPage(Gtk.Box):
         toolbar.set_content(content)
         self.append(toolbar)
     def show_anime(self, anime_id: int) -> None:
+        self.anime_id = anime_id
+        self.playback_status.set_label("")
         while child := self.episodes.get_first_child(): self.episodes.remove(child)
         repository = LibraryRepository(self.database_path)
         try:
@@ -119,4 +128,37 @@ class AnimeDetailPage(Gtk.Box):
             if episode["height"]: details.append(f"{episode['height']}p")
             if episode["duration_seconds"]: details.append(f"{round(episode['duration_seconds'] / 60)} min")
             details.append(episode["relative_path"])
-            self.episodes.append(Adw.ActionRow(title=title, subtitle=" · ".join(details)))
+            row = Adw.ActionRow(title=title, subtitle=" · ".join(details))
+            play_button = Gtk.Button(
+                icon_name="media-playback-start-symbolic",
+                tooltip_text="Play in Celluloid",
+                valign=Gtk.Align.CENTER,
+            )
+            play_button.connect(
+                "clicked",
+                self._play_episode,
+                int(episode["episode_id"]),
+                str(episode["relative_path"]),
+            )
+            row.add_suffix(play_button)
+            self.episodes.append(row)
+
+    def _play_episode(self, _button: Gtk.Button, episode_id: int, relative_path: str) -> None:
+        """Record the explicit launch, then hand the file to Celluloid."""
+        if self.anime_id is None:
+            return
+        media_path = self.library_root / relative_path
+        repository = LibraryRepository(self.database_path)
+        try:
+            repository.record_launch(self.anime_id, episode_id)
+        except Exception as error:
+            self.playback_status.set_label(f"Could not record playback: {error}")
+            return
+        finally:
+            repository.close()
+        try:
+            self.player_backend.launch(media_path)
+        except OSError as error:
+            self.playback_status.set_label(f"Could not start Celluloid: {error}")
+            return
+        self.playback_status.set_label(f"Playing {media_path.name} in Celluloid")
