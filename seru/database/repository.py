@@ -50,6 +50,22 @@ class LibraryRepository:
         row = self.connection.execute("SELECT COUNT(*) files, COUNT(DISTINCT e.anime_id) titles, COALESCE(SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END), 0) episodes, COALESCE(SUM(CASE WHEN e.is_movie = 1 THEN 1 ELSE 0 END), 0) movies, COALESCE(SUM(CASE WHEN e.needs_review = 1 THEN 1 ELSE 0 END), 0) needs_review FROM media_files m JOIN episodes e ON e.episode_id=m.episode_id WHERE m.location_id = ?", (location_id,)).fetchone()
         return dict(row)
 
+    @staticmethod
+    def _collection_filter(folder_filter: str | None) -> tuple[str, tuple[str, ...]]:
+        """Filter by detected category in the first component of a relative path.
+
+        A collection containing ``watch`` belongs to Watching even if it also
+        contains ``download`` in its name.  This lets names such as
+        "Watching - Finished Downloads" remain distinct from a general
+        downloads intake collection without encoding either full folder name.
+        """
+        if folder_filter is None:
+            return "", ()
+        collection = "LOWER(SUBSTR(m.relative_path, 1, INSTR(m.relative_path || '/', '/') - 1))"
+        if folder_filter == "downloads":
+            return f" AND {collection} LIKE ? AND {collection} NOT LIKE ?", ("%download%", "%watch%")
+        return f" AND {collection} LIKE ?", (f"%{folder_filter.casefold()}%",)
+
     def library_statistics(self, location_id: str) -> tuple[sqlite3.Row, list[sqlite3.Row], list[sqlite3.Row]]:
         """Aggregate the local index for the Statistics page only.
 
@@ -87,9 +103,10 @@ class LibraryRepository:
         ).fetchall()
         return summary, codecs, resolutions
 
-    def list_anime(self, location_id: str, search: str = "") -> list[sqlite3.Row]:
+    def list_anime(self, location_id: str, search: str = "", folder_filter: str | None = None) -> list[sqlite3.Row]:
         """Return library rows from the cache; never inspect the filesystem."""
         term = f"%{search.strip()}%"
+        filter_sql, filter_args = self._collection_filter(folder_filter)
         return self.connection.execute(
             """SELECT a.anime_id, a.title,
                       COUNT(m.media_file_id) AS file_count,
@@ -99,13 +116,14 @@ class LibraryRepository:
                FROM anime a
                JOIN episodes e ON e.anime_id = a.anime_id
                JOIN media_files m ON m.episode_id = e.episode_id
-               WHERE m.location_id = ? AND a.title LIKE ?
+               WHERE m.location_id = ? AND a.title LIKE ?""" + filter_sql + """
                GROUP BY a.anime_id
                ORDER BY a.title COLLATE NOCASE""",
-            (location_id, term),
+            (location_id, term, *filter_args),
         ).fetchall()
 
-    def anime_detail(self, anime_id: int, location_id: str) -> sqlite3.Row | None:
+    def anime_detail(self, anime_id: int, location_id: str, folder_filter: str | None = None) -> sqlite3.Row | None:
+        filter_sql, filter_args = self._collection_filter(folder_filter)
         return self.connection.execute(
             """SELECT a.anime_id, a.title, COUNT(m.media_file_id) AS file_count,
                       SUM(CASE WHEN e.is_movie = 0 AND e.needs_review = 0 THEN 1 ELSE 0 END) AS episode_count,
@@ -113,18 +131,19 @@ class LibraryRepository:
                       SUM(m.file_size) AS total_size
                FROM anime a JOIN episodes e ON e.anime_id = a.anime_id
                JOIN media_files m ON m.episode_id = e.episode_id
-               WHERE a.anime_id = ? AND m.location_id = ?
+               WHERE a.anime_id = ? AND m.location_id = ?""" + filter_sql + """
                GROUP BY a.anime_id""",
-            (anime_id, location_id),
+            (anime_id, location_id, *filter_args),
         ).fetchone()
 
-    def anime_episodes(self, anime_id: int, location_id: str) -> list[sqlite3.Row]:
+    def anime_episodes(self, anime_id: int, location_id: str, folder_filter: str | None = None) -> list[sqlite3.Row]:
+        filter_sql, filter_args = self._collection_filter(folder_filter)
         return self.connection.execute(
             """SELECT e.episode_id, e.season_number, e.episode_number, e.episode_end_number, e.is_movie, e.needs_review,
                       e.review_reason, m.relative_path, m.duration_seconds, m.height
                FROM episodes e JOIN media_files m ON m.episode_id = e.episode_id
-               WHERE e.anime_id = ? AND m.location_id = ?
+               WHERE e.anime_id = ? AND m.location_id = ?""" + filter_sql + """
                ORDER BY e.is_movie, e.season_number IS NULL, e.season_number,
                         e.episode_number IS NULL, e.episode_number, m.relative_path""",
-            (anime_id, location_id),
+            (anime_id, location_id, *filter_args),
         ).fetchall()

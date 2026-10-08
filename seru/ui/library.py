@@ -45,10 +45,10 @@ class LibraryPage(Gtk.Box):
         self.empty_title = empty_page
         self.content.add_named(empty_page, "empty")
         self.append(self.content)
-    def reload(self, search: str = "") -> None:
+    def reload(self, search: str = "", folder_filter: str | None = None) -> None:
         while child := self.list_box.get_first_child(): self.list_box.remove(child)
         repository = LibraryRepository(self.database_path)
-        try: rows = repository.list_anime("default", search)
+        try: rows = repository.list_anime("default", search, folder_filter)
         finally: repository.close()
         if not rows:
             if search.strip():
@@ -109,13 +109,14 @@ class AnimeDetailPage(Gtk.Box):
         content.append(scroll)
         toolbar.set_content(content)
         self.append(toolbar)
-    def show_anime(self, anime_id: int) -> None:
+    def show_anime(self, anime_id: int, folder_filter: str | None = None) -> None:
         self.anime_id = anime_id
         self.playback_status.set_label("")
         while child := self.episodes.get_first_child(): self.episodes.remove(child)
         repository = LibraryRepository(self.database_path)
         try:
-            anime, episodes = repository.anime_detail(anime_id, "default"), repository.anime_episodes(anime_id, "default")
+            anime = repository.anime_detail(anime_id, "default", folder_filter)
+            episodes = repository.anime_episodes(anime_id, "default", folder_filter)
         finally: repository.close()
         if anime is None:
             self.window_title.set_title("Title not found")

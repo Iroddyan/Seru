@@ -18,6 +18,7 @@ class SeruWindow(Adw.ApplicationWindow):
         super().__init__(default_width=1080, default_height=720, title="Seru", **kwargs)
         self.database_path = default_database_path()
         self.library_root = Path(os.environ.get("SERU_LIBRARY_ROOT", DEFAULT_LIBRARY_ROOT))
+        self.folder_filter: str | None = None
         self._rescan_running = False
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -40,9 +41,15 @@ class SeruWindow(Adw.ApplicationWindow):
         navigation = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         library_row = Adw.ActionRow(title="Library", icon_name="folder-symbolic", activatable=True)
         library_row.view_name = "library"
+        watching_row = Adw.ActionRow(title="Watching", icon_name="media-playlist-repeat-symbolic", activatable=True)
+        watching_row.view_name = "watching"
+        downloads_row = Adw.ActionRow(title="Downloads", icon_name="folder-download-symbolic", activatable=True)
+        downloads_row.view_name = "downloads"
         statistics_row = Adw.ActionRow(title="Statistics", icon_name="view-list-symbolic", activatable=True)
         statistics_row.view_name = "statistics"
         navigation.append(library_row)
+        navigation.append(watching_row)
+        navigation.append(downloads_row)
         navigation.append(statistics_row)
         navigation.select_row(library_row)
         navigation.connect("row-selected", self._on_navigation_selected)
@@ -51,7 +58,7 @@ class SeruWindow(Adw.ApplicationWindow):
         root.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         self.stack = Gtk.Stack(vexpand=True, hexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.library_page = LibraryPage(self.database_path, self.show_anime)
-        self.detail_page = AnimeDetailPage(self.database_path, self.library_root, self.show_library)
+        self.detail_page = AnimeDetailPage(self.database_path, self.library_root, self.show_current_view)
         self.statistics_page = StatisticsPage(self.database_path)
         self.stack.add_named(self.library_page, "library")
         self.stack.add_named(self.detail_page, "detail")
@@ -61,12 +68,21 @@ class SeruWindow(Adw.ApplicationWindow):
         self.set_content(toolbar)
         self.show_library()
     def show_library(self) -> None:
+        self.show_collection(None)
+    def show_watching(self) -> None:
+        self.show_collection("watching")
+    def show_downloads(self) -> None:
+        self.show_collection("downloads")
+    def show_collection(self, folder_filter: str | None) -> None:
+        self.folder_filter = folder_filter
         self.search.set_visible(True)
-        self.library_page.reload(self.search.get_text())
+        self.library_page.reload(self.search.get_text(), self.folder_filter)
         self.stack.set_visible_child_name("library")
+    def show_current_view(self) -> None:
+        self.show_collection(self.folder_filter)
     def show_anime(self, anime_id: int) -> None:
         self.search.set_visible(False)
-        self.detail_page.show_anime(anime_id)
+        self.detail_page.show_anime(anime_id, self.folder_filter)
         self.stack.set_visible_child_name("detail")
     def show_statistics(self) -> None:
         self.search.set_visible(False)
@@ -75,10 +91,14 @@ class SeruWindow(Adw.ApplicationWindow):
     def _on_navigation_selected(self, _box: Gtk.ListBox, row: Adw.ActionRow | None) -> None:
         if row is not None and row.view_name == "statistics":
             self.show_statistics()
+        elif row is not None and row.view_name == "watching":
+            self.show_watching()
+        elif row is not None and row.view_name == "downloads":
+            self.show_downloads()
         else:
             self.show_library()
     def _on_search_changed(self, _entry: Gtk.SearchEntry) -> None:
-        if self.stack.get_visible_child_name() == "library": self.library_page.reload(self.search.get_text())
+        if self.stack.get_visible_child_name() == "library": self.library_page.reload(self.search.get_text(), self.folder_filter)
     def _start_rescan(self, _button: Gtk.Button) -> None:
         if self._rescan_running: return
         self._rescan_running = True
@@ -111,5 +131,5 @@ class SeruWindow(Adw.ApplicationWindow):
             if result.errors:
                 details.append(f"{result.errors} with errors")
             self.status.set_label("Updated · " + " · ".join(details))
-            self.show_library()
+            self.show_current_view()
         return False
