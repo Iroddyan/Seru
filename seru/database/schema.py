@@ -5,7 +5,8 @@ CREATE TABLE IF NOT EXISTS library_locations (
  location_id TEXT PRIMARY KEY, root_path TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS anime (
- anime_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL UNIQUE, needs_review INTEGER NOT NULL DEFAULT 0
+ anime_id INTEGER PRIMARY KEY, title TEXT NOT NULL, title_key TEXT NOT NULL UNIQUE,
+ needs_review INTEGER NOT NULL DEFAULT 0, favorite INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS episodes (
  episode_id INTEGER PRIMARY KEY, anime_id INTEGER NOT NULL REFERENCES anime(anime_id) ON DELETE CASCADE,
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS media_files (
  relative_path TEXT NOT NULL, episode_id INTEGER NOT NULL REFERENCES episodes(episode_id) ON DELETE CASCADE,
  file_size INTEGER NOT NULL, modified_ns INTEGER NOT NULL, video_codec TEXT, audio_codec TEXT, width INTEGER, height INTEGER,
  duration_seconds REAL, probe_status TEXT NOT NULL DEFAULT 'pending', probe_error TEXT,
+ discovered_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
  UNIQUE(location_id, relative_path)
 );
 CREATE TABLE IF NOT EXISTS launches (

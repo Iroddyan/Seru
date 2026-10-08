@@ -11,6 +11,7 @@ from ..library.scan import DEFAULT_LIBRARY_ROOT, default_database_path
 from ..library.scanner import LibraryScanner
 from .library import AnimeDetailPage, LibraryPage
 from .statistics import StatisticsPage
+from .dashboard import HomePage
 
 class SeruWindow(Adw.ApplicationWindow):
     """A GNOME library browser with a worker-thread-only rescan action."""
@@ -19,6 +20,8 @@ class SeruWindow(Adw.ApplicationWindow):
         self.database_path = default_database_path()
         self.library_root = Path(os.environ.get("SERU_LIBRARY_ROOT", DEFAULT_LIBRARY_ROOT))
         self.folder_filter: str | None = None
+        self.favorites_only = False
+        self.active_view = "library"
         self._rescan_running = False
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -39,17 +42,23 @@ class SeruWindow(Adw.ApplicationWindow):
         label.add_css_class("heading")
         sidebar.append(label)
         navigation = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        home_row = Adw.ActionRow(title="Home", icon_name="go-home-symbolic", activatable=True)
+        home_row.view_name = "home"
         library_row = Adw.ActionRow(title="Library", icon_name="folder-symbolic", activatable=True)
         library_row.view_name = "library"
         watching_row = Adw.ActionRow(title="Watching", icon_name="media-playlist-repeat-symbolic", activatable=True)
         watching_row.view_name = "watching"
         downloads_row = Adw.ActionRow(title="Downloads", icon_name="folder-download-symbolic", activatable=True)
         downloads_row.view_name = "downloads"
+        favorites_row = Adw.ActionRow(title="Favorites", icon_name="starred-symbolic", activatable=True)
+        favorites_row.view_name = "favorites"
         statistics_row = Adw.ActionRow(title="Statistics", icon_name="view-list-symbolic", activatable=True)
         statistics_row.view_name = "statistics"
+        navigation.append(home_row)
         navigation.append(library_row)
         navigation.append(watching_row)
         navigation.append(downloads_row)
+        navigation.append(favorites_row)
         navigation.append(statistics_row)
         navigation.select_row(library_row)
         navigation.connect("row-selected", self._on_navigation_selected)
@@ -58,47 +67,70 @@ class SeruWindow(Adw.ApplicationWindow):
         root.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         self.stack = Gtk.Stack(vexpand=True, hexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.library_page = LibraryPage(self.database_path, self.show_anime)
-        self.detail_page = AnimeDetailPage(self.database_path, self.library_root, self.show_current_view)
+        self.detail_page = AnimeDetailPage(self.database_path, self.library_root, self.show_active_view)
         self.statistics_page = StatisticsPage(self.database_path)
+        self.home_page = HomePage(self.database_path)
         self.stack.add_named(self.library_page, "library")
         self.stack.add_named(self.detail_page, "detail")
         self.stack.add_named(self.statistics_page, "statistics")
+        self.stack.add_named(self.home_page, "home")
         root.append(self.stack)
         toolbar.set_content(root)
         self.set_content(toolbar)
         self.show_library()
     def show_library(self) -> None:
-        self.show_collection(None)
+        self.show_collection(None, False)
     def show_watching(self) -> None:
-        self.show_collection("watching")
+        self.show_collection("watching", False)
     def show_downloads(self) -> None:
-        self.show_collection("downloads")
-    def show_collection(self, folder_filter: str | None) -> None:
+        self.show_collection("downloads", False)
+    def show_favorites(self) -> None:
+        self.show_collection(None, True)
+    def show_collection(self, folder_filter: str | None, favorites_only: bool) -> None:
+        self.active_view = "library"
         self.folder_filter = folder_filter
+        self.favorites_only = favorites_only
         self.search.set_visible(True)
-        self.library_page.reload(self.search.get_text(), self.folder_filter)
+        self.library_page.reload(self.search.get_text(), self.folder_filter, self.favorites_only)
         self.stack.set_visible_child_name("library")
     def show_current_view(self) -> None:
-        self.show_collection(self.folder_filter)
+        self.show_collection(self.folder_filter, self.favorites_only)
     def show_anime(self, anime_id: int) -> None:
         self.search.set_visible(False)
         self.detail_page.show_anime(anime_id, self.folder_filter)
         self.stack.set_visible_child_name("detail")
     def show_statistics(self) -> None:
+        self.active_view = "statistics"
         self.search.set_visible(False)
         self.statistics_page.reload()
         self.stack.set_visible_child_name("statistics")
+    def show_home(self) -> None:
+        self.active_view = "home"
+        self.search.set_visible(False)
+        self.home_page.reload()
+        self.stack.set_visible_child_name("home")
+    def show_active_view(self) -> None:
+        if self.active_view == "home":
+            self.show_home()
+        elif self.active_view == "statistics":
+            self.show_statistics()
+        else:
+            self.show_current_view()
     def _on_navigation_selected(self, _box: Gtk.ListBox, row: Adw.ActionRow | None) -> None:
-        if row is not None and row.view_name == "statistics":
+        if row is not None and row.view_name == "home":
+            self.show_home()
+        elif row is not None and row.view_name == "statistics":
             self.show_statistics()
         elif row is not None and row.view_name == "watching":
             self.show_watching()
         elif row is not None and row.view_name == "downloads":
             self.show_downloads()
+        elif row is not None and row.view_name == "favorites":
+            self.show_favorites()
         else:
             self.show_library()
     def _on_search_changed(self, _entry: Gtk.SearchEntry) -> None:
-        if self.stack.get_visible_child_name() == "library": self.library_page.reload(self.search.get_text(), self.folder_filter)
+        if self.stack.get_visible_child_name() == "library": self.library_page.reload(self.search.get_text(), self.folder_filter, self.favorites_only)
     def _start_rescan(self, _button: Gtk.Button) -> None:
         if self._rescan_running: return
         self._rescan_running = True
@@ -131,5 +163,5 @@ class SeruWindow(Adw.ApplicationWindow):
             if result.errors:
                 details.append(f"{result.errors} with errors")
             self.status.set_label("Updated · " + " · ".join(details))
-            self.show_current_view()
+            self.show_active_view()
         return False

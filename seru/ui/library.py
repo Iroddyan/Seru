@@ -45,10 +45,11 @@ class LibraryPage(Gtk.Box):
         self.empty_title = empty_page
         self.content.add_named(empty_page, "empty")
         self.append(self.content)
-    def reload(self, search: str = "", folder_filter: str | None = None) -> None:
+    def reload(self, search: str = "", folder_filter: str | None = None,
+               favorites_only: bool = False) -> None:
         while child := self.list_box.get_first_child(): self.list_box.remove(child)
         repository = LibraryRepository(self.database_path)
-        try: rows = repository.list_anime("default", search, folder_filter)
+        try: rows = repository.list_anime("default", search, folder_filter, favorites_only)
         finally: repository.close()
         if not rows:
             if search.strip():
@@ -85,6 +86,7 @@ class AnimeDetailPage(Gtk.Box):
         self.database_path, self.library_root, self.on_back = database_path, library_root, on_back
         self.player_backend = player_backend or CelluloidBackend()
         self.anime_id: int | None = None
+        self.favorite = False
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
         back_button = Gtk.Button(icon_name="go-previous-symbolic", tooltip_text="Back to Library")
@@ -92,6 +94,9 @@ class AnimeDetailPage(Gtk.Box):
         header.pack_start(back_button)
         self.window_title = Adw.WindowTitle(title="", subtitle="")
         header.set_title_widget(self.window_title)
+        self.favorite_button = Gtk.Button(icon_name="non-starred-symbolic", tooltip_text="Add to Favorites")
+        self.favorite_button.connect("clicked", self._toggle_favorite)
+        header.pack_end(self.favorite_button)
         toolbar.add_top_bar(header)
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.stats_label = Gtk.Label(xalign=0, wrap=True, margin_top=18, margin_bottom=12, margin_start=18, margin_end=18)
@@ -121,8 +126,12 @@ class AnimeDetailPage(Gtk.Box):
         if anime is None:
             self.window_title.set_title("Title not found")
             self.stats_label.set_label("This title is no longer present in the library index.")
+            self.favorite = False
+            self._update_favorite_button()
             return
         self.window_title.set_title(anime["title"])
+        self.favorite = bool(anime["favorite"])
+        self._update_favorite_button()
         self.stats_label.set_label(" · ".join((f"{anime['episode_count']} episodes", f"{anime['movie_count']} movies", format_size(anime["total_size"]))))
         for episode in episodes:
             if episode["is_movie"]: title = "Movie"
@@ -149,6 +158,21 @@ class AnimeDetailPage(Gtk.Box):
             )
             row.add_suffix(play_button)
             self.episodes.append(row)
+
+    def _update_favorite_button(self) -> None:
+        self.favorite_button.set_icon_name("starred-symbolic" if self.favorite else "non-starred-symbolic")
+        self.favorite_button.set_tooltip_text("Remove from Favorites" if self.favorite else "Add to Favorites")
+
+    def _toggle_favorite(self, _button: Gtk.Button) -> None:
+        if self.anime_id is None:
+            return
+        self.favorite = not self.favorite
+        repository = LibraryRepository(self.database_path)
+        try:
+            repository.set_favorite(self.anime_id, self.favorite)
+        finally:
+            repository.close()
+        self._update_favorite_button()
 
     def _play_episode(self, _button: Gtk.Button, episode_id: int, relative_path: str) -> None:
         """Record the explicit launch, then hand the file to Celluloid."""
