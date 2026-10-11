@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Seru app icon</title>
+  <desc id="desc">An indigo app icon with a stylized S formed from animation cells.</desc>
+  <defs>
+    <linearGradient id="surface" x1="132" y1="104" x2="886" y2="926" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#25285B"/>
+      <stop offset="1" stop-color="#151735"/>
+    </linearGradient>
+    <linearGradient id="cell" x1="316" y1="235" x2="708" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C7D0FF"/>
+      <stop offset="1" stop-color="#8291F5"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#surface)"/>
+  <rect x="48" y="48" width="928" height="928" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity=".08" stroke-width="8"/>
+  <!-- Four offset animation cells make a continuous, readable S. -->
+  <g fill="url(#cell)">
+    <path d="M308 228h394c55 0 100 45 100 100v86c0 31-25 56-56 56s-56-25-56-56v-58c0-9-7-16-16-16H336c-16 0-28 13-28 28v84c0 16 12 28 28 28h352c55 0 100 45 100 100v176c0 55-45 100-100 100H294c-55 0-100-45-100-100v-86c0-31 25-56 56-56s56 25 56 56v58c0 9 7 16 16 16h338c16 0 28-13 28-28v-84c0-16-12-28-28-28H308c-55 0-100-45-100-100V328c0-55 45-100 100-100Z"/>
+    <circle cx="382" cy="410" r="22" fill="#25285B"/>
+    <circle cx="542" cy="410" r="22" fill="#25285B"/>
+    <circle cx="482" cy="614" r="22" fill="#25285B"/>
+    <circle cx="642" cy="614" r="22" fill="#25285B"/>
+  </g>
+  <path d="M741 228c33 0 61 20 73 49" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-opacity=".36" stroke-width="18"/>
+</svg>

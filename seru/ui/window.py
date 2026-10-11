@@ -13,6 +13,10 @@ from .library import AnimeDetailPage, LibraryPage
 from .statistics import StatisticsPage
 from .dashboard import HomePage
 
+
+APP_ICON_PATH = Path(__file__).resolve().parents[2] / "seru-icon.svg"
+
+
 class SeruWindow(Adw.ApplicationWindow):
     """A GNOME library browser with a worker-thread-only rescan action."""
     def __init__(self, **kwargs: object) -> None:
@@ -34,7 +38,13 @@ class SeruWindow(Adw.ApplicationWindow):
         self.rescan_button = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Rescan Library")
         self.rescan_button.connect("clicked", self._start_rescan)
         header.pack_end(self.rescan_button)
-        header.set_title_widget(Adw.WindowTitle(title="Seru", subtitle="Library"))
+        brand = Gtk.Box(spacing=8, valign=Gtk.Align.CENTER)
+        logo = Gtk.Image.new_from_file(str(APP_ICON_PATH))
+        logo.set_pixel_size(30)
+        logo.set_tooltip_text("Seru")
+        brand.append(logo)
+        brand.append(Adw.WindowTitle(title="Seru", subtitle="Library"))
+        header.set_title_widget(brand)
         toolbar.add_top_bar(header)
         root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, width_request=180, margin_top=12, margin_bottom=12, margin_start=12, margin_end=6)
