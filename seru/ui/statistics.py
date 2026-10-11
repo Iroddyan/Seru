@@ -31,6 +31,7 @@ class StatisticsPage(Gtk.ScrolledWindow):
     def __init__(self, database_path: Path) -> None:
         super().__init__(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.database_path = database_path
+        self.location_id = "default"
         self.content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
             spacing=18,
@@ -56,7 +57,7 @@ class StatisticsPage(Gtk.ScrolledWindow):
         self._clear(self.content)
         repository = LibraryRepository(self.database_path)
         try:
-            summary, codecs, resolutions = repository.library_statistics("default")
+            summary, codecs, resolutions = repository.library_statistics(self.location_id)
         finally:
             repository.close()
 

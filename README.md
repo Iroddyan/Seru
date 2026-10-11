@@ -1,9 +1,11 @@
 # セル / Seru — Revised Build Plan (Python Edition)
 ---
 
+> **Current product scope:** [SERU_PRODUCT_PLAN.md](SERU_PRODUCT_PLAN.md) supersedes the older Anime-only scope and deferred-feature list below. Seru now targets Anime, TV Shows, Movies, and Cartoons; it may organize media only through a user-reviewed preview and explicit confirmation. The older Bits remain historical implementation context and should not override that product plan.
+
 ## Bit 0 — Standing Context
 
-**What this is:** セル (Seru) — a native GNOME library manager for a local anime collection. It browses, catalogs, and launches playback. It is **not** a media player and does not do transcoding/streaming itself.
+**What this is:** セル (Seru) — a native GNOME library manager for local Anime, TV Shows, Movies, and Cartoons collections. It browses, catalogs, and launches playback. It is **not** a media player and does not do transcoding/streaming itself.
 
 **Stack:**
 - Python 3
@@ -40,7 +42,7 @@ The Python package itself, imported as `seru` (lowercase, standard Python conven
 
 **Non-negotiable rules:**
 1. The filesystem is the source of truth. SQLite is a rebuildable cache/index — if deleted, Seru rebuilds it from disk. Never assume the DB.
-2. Seru never renames, moves, deletes, or reorganizes anything in the library automatically.
+2. Seru never changes media paths during scanning. User-invoked organization must show a preview, require explicit confirmation, avoid overwrites, record completed actions, and provide an undo path where possible.
 3. No shell strings, ever. All subprocess calls (`ffprobe`, `celluloid`) use an argument list (`subprocess.run([...])` / `subprocess.Popen([...])`), never `shell=True` or string concatenation. Treat every filename/path as untrusted input.
 4. Scanning and ffprobe calls must run off the GTK main thread (Python `threading`), with results marshaled back to the UI via `GLib.idle_add`. The window must never freeze during a scan.
 5. Every per-file parse or ffprobe call is wrapped in its own `try/except`. One malformed file must never abort a whole scan. Anything that can't be confidently parsed is marked `Unknown / Needs Review`, never silently dropped and never silently guessed.
@@ -81,7 +83,7 @@ seru/
 
 **GNOME design principles:** libadwaita components, header bars, sidebar navigation, standard symbolic icons, adaptive layouts, system theme integration. Avoid custom title bars, gradients, glassmorphism, neon "gamer" aesthetics, anime wallpaper. Subtle and mature — a serious desktop app that happens to be about anime.
 
-**Explicitly deferred — do not build any of this yet:** embedded mpv, online anime APIs, automatic metadata/artwork downloading, automatic renaming or file organization, torrents, streaming, accounts, cloud sync, social features, recommendations, subtitle downloading, mobile apps, filesystem watcher/auto-rescan, and Diagnostics. Those come later, if at all.
+**Still deferred:** embedded mpv, online metadata/artwork services, automatic metadata/artwork downloading, automatic file organization during scans, torrents, streaming, accounts, cloud sync, social features, recommendations, subtitle downloading, mobile apps, and Diagnostics. File organization is available only as a user-invoked, confirmed workflow; change monitoring runs only while Seru is open.
 
 Statistics, Watching, Downloads, Favorites, and Home are **not** on the "don't build" list — they're specified below as Bits 7–10, to be built only after the Bit 6 checkpoint. Two design notes that apply to all of them, decided up front so Codex doesn't reinvent them differently each time:
 - Watching and Downloads are **folder-driven, not progress-tracking**. The existing library already sorts titles into categories on disk (e.g. `Watching - Finished/Unfinished Downloads`, `Downloads & Unorganized`). Detect these folder categories the same way Library detection already works (Section 3's rule: detect, don't hardcode) and treat "Watching"/"Downloads" as filtered views over that, not as a per-episode resume-position system.

@@ -31,6 +31,7 @@ class HomePage(Gtk.ScrolledWindow):
     def __init__(self, database_path: Path) -> None:
         super().__init__(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
         self.database_path = database_path
+        self.location_id = "default"
         self.content = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=18,
             margin_top=18, margin_bottom=24, margin_start=18, margin_end=18,
@@ -60,15 +61,17 @@ class HomePage(Gtk.ScrolledWindow):
         self._clear()
         repository = LibraryRepository(self.database_path)
         try:
-            summary, _codecs, _resolutions = repository.library_statistics("default")
-            continue_watching, recently_added = repository.home_dashboard("default")
+            summary, _codecs, _resolutions = repository.library_statistics(self.location_id)
+            continue_watching, recently_added = repository.home_dashboard(self.location_id)
         finally:
             repository.close()
 
         if summary["titles"] == 0:
             self.content.append(Adw.StatusPage(
                 icon_name="go-home-symbolic", title="Welcome to Seru",
-                description="Rescan the library to build your local index.",
+                description=(f"Welcome, {self.display_name}. Choose a library folder or add media to an empty library."
+                              if getattr(self, "display_name", "") else
+                              "Choose a library folder or add media to an empty library."),
             ))
             return
 

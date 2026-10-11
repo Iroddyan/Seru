@@ -24,6 +24,8 @@ class LibraryPage(Gtk.Box):
     def __init__(self, database_path: Path, on_open_anime: object) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.database_path, self.on_open_anime = database_path, on_open_anime
+        self.location_id = "default"
+        self.empty_description = "Choose a library folder in Settings to get started."
         self.list_box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.list_box.add_css_class("boxed-list")
         self.list_box.connect("row-activated", self._on_row_activated)
@@ -49,7 +51,7 @@ class LibraryPage(Gtk.Box):
                favorites_only: bool = False) -> None:
         while child := self.list_box.get_first_child(): self.list_box.remove(child)
         repository = LibraryRepository(self.database_path)
-        try: rows = repository.list_anime("default", search, folder_filter, favorites_only)
+        try: rows = repository.list_anime(self.location_id, search, folder_filter, favorites_only)
         finally: repository.close()
         if not rows:
             if search.strip():
@@ -59,7 +61,7 @@ class LibraryPage(Gtk.Box):
             else:
                 self.count_label.set_label("No titles indexed")
                 self.empty_title.set_title("No titles to show")
-                self.empty_title.set_description("Rescan the library after choosing a folder with anime files.")
+                self.empty_title.set_description(self.empty_description)
             self.content.set_visible_child_name("empty")
             return
 
@@ -84,6 +86,7 @@ class AnimeDetailPage(Gtk.Box):
                  player_backend: PlayerBackend | None = None) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.database_path, self.library_root, self.on_back = database_path, library_root, on_back
+        self.location_id = "default"
         self.player_backend = player_backend or CelluloidBackend()
         self.anime_id: int | None = None
         self.favorite = False
@@ -120,8 +123,8 @@ class AnimeDetailPage(Gtk.Box):
         while child := self.episodes.get_first_child(): self.episodes.remove(child)
         repository = LibraryRepository(self.database_path)
         try:
-            anime = repository.anime_detail(anime_id, "default", folder_filter)
-            episodes = repository.anime_episodes(anime_id, "default", folder_filter)
+            anime = repository.anime_detail(anime_id, self.location_id, folder_filter)
+            episodes = repository.anime_episodes(anime_id, self.location_id, folder_filter)
         finally: repository.close()
         if anime is None:
             self.window_title.set_title("Title not found")
@@ -181,7 +184,7 @@ class AnimeDetailPage(Gtk.Box):
         media_path = self.library_root / relative_path
         repository = LibraryRepository(self.database_path)
         try:
-            repository.record_launch(self.anime_id, episode_id)
+            repository.record_launch(self.anime_id, episode_id, self.location_id)
         except Exception as error:
             self.playback_status.set_label(f"Could not record playback: {error}")
             return

@@ -11,6 +11,10 @@ class LibraryRepository:
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
         self.connection.executescript(SCHEMA_SQL)
+        self._ensure_column("library_locations", "library_type", "TEXT NOT NULL DEFAULT 'anime'")
+        self._ensure_column("anime", "library_type", "TEXT NOT NULL DEFAULT 'anime'")
+        self._ensure_column("media_files", "device_id", "INTEGER")
+        self._ensure_column("media_files", "inode", "INTEGER")
         episode_columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(episodes)")}
         if "episode_end_number" not in episode_columns:
             self.connection.execute("ALTER TABLE episodes ADD COLUMN episode_end_number INTEGER")
@@ -21,14 +25,44 @@ class LibraryRepository:
         if "discovered_at" not in media_columns:
             self.connection.execute("ALTER TABLE media_files ADD COLUMN discovered_at TEXT")
             self.connection.execute("UPDATE media_files SET discovered_at = datetime(modified_ns / 1000000000, 'unixepoch') WHERE discovered_at IS NULL")
+        self.connection.execute(
+            """INSERT OR IGNORE INTO launch_history
+               (legacy_launch_id, location_id, anime_id, title, season_number, episode_number,
+                episode_end_number, is_movie, relative_path, timestamp)
+               SELECT l.launch_id, m.location_id, a.anime_id, a.title, e.season_number,
+                      e.episode_number, e.episode_end_number, e.is_movie, m.relative_path, l.timestamp
+               FROM launches l JOIN anime a ON a.anime_id=l.anime_id
+               JOIN episodes e ON e.episode_id=l.episode_id
+               JOIN media_files m ON m.episode_id=e.episode_id"""
+        )
         self.connection.commit()
+    def _ensure_column(self, table: str, column: str, declaration: str) -> None:
+        columns = {row["name"] for row in self.connection.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            self.connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
     def close(self) -> None: self.connection.close()
-    def begin_scan(self, location_id: str, root_path: Path) -> None:
-        self.connection.execute("INSERT INTO library_locations(location_id, root_path) VALUES(?, ?) ON CONFLICT(location_id) DO UPDATE SET root_path=excluded.root_path, updated_at=CURRENT_TIMESTAMP", (location_id, str(root_path.resolve())))
+    def begin_scan(self, location_id: str, root_path: Path, library_type: str = "anime") -> None:
+        self.connection.execute("INSERT INTO library_locations(location_id, root_path, library_type) VALUES(?, ?, ?) ON CONFLICT(location_id) DO UPDATE SET root_path=excluded.root_path, library_type=excluded.library_type, updated_at=CURRENT_TIMESTAMP", (location_id, str(root_path.resolve()), library_type))
     def existing_file(self, location_id: str, relative_path: str) -> sqlite3.Row | None:
         return self.connection.execute("SELECT * FROM media_files WHERE location_id = ? AND relative_path = ?", (location_id, relative_path)).fetchone()
-    def save_file(self, location_id: str, relative_path: str, *, title: str, title_key: str, season_number: int | None, episode_number: int | None, episode_end_number: int | None, is_movie: bool, needs_review: bool, review_reason: str | None, file_size: int, modified_ns: int, metadata: object | None, probe_status: str, probe_error: str | None) -> None:
-        anime_id = self.connection.execute("INSERT INTO anime(title, title_key, needs_review) VALUES (?, ?, ?) ON CONFLICT(title_key) DO UPDATE SET needs_review=MAX(anime.needs_review, excluded.needs_review) RETURNING anime_id", (title, title_key, int(needs_review))).fetchone()[0]
+    def relocate_by_identity(self, location_id: str, relative_path: str, device_id: int, inode: int) -> bool:
+        old = self.connection.execute(
+            "SELECT relative_path FROM media_files WHERE location_id=? AND device_id=? AND inode=?",
+            (location_id, device_id, inode),
+        ).fetchone()
+        if old is None or old["relative_path"] == relative_path:
+            return False
+        occupied = self.existing_file(location_id, relative_path)
+        if occupied is not None:
+            return False
+        self.connection.execute(
+            "UPDATE media_files SET relative_path=? WHERE location_id=? AND device_id=? AND inode=?",
+            (relative_path, location_id, device_id, inode),
+        )
+        return True
+    def save_file(self, location_id: str, relative_path: str, *, title: str, title_key: str, season_number: int | None, episode_number: int | None, episode_end_number: int | None, is_movie: bool, needs_review: bool, review_reason: str | None, file_size: int, modified_ns: int, device_id: int | None, inode: int | None, metadata: object | None, probe_status: str, probe_error: str | None, library_type: str = "anime") -> None:
+        stable_key = title_key if library_type == "anime" else f"{library_type}:{title_key}"
+        anime_id = self.connection.execute("INSERT INTO anime(title, title_key, library_type, needs_review) VALUES (?, ?, ?, ?) ON CONFLICT(title_key) DO UPDATE SET needs_review=MAX(anime.needs_review, excluded.needs_review) RETURNING anime_id", (title, stable_key, library_type, int(needs_review))).fetchone()[0]
         previous = self.existing_file(location_id, relative_path)
         if previous is None:
             episode_id = self.connection.execute("INSERT INTO episodes(anime_id, season_number, episode_number, episode_end_number, is_movie, needs_review, review_reason) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING episode_id", (anime_id, season_number, episode_number, episode_end_number, int(is_movie), int(needs_review), review_reason)).fetchone()[0]
@@ -38,26 +72,55 @@ class LibraryRepository:
         values = (None, None, None, None, None) if metadata is None else (metadata.video_codec, metadata.audio_codec, metadata.width, metadata.height, metadata.duration_seconds)
         discovered_at = previous["discovered_at"] if previous is not None else None
         if previous is None:
-            self.connection.execute("INSERT INTO media_files(location_id, relative_path, episode_id, file_size, modified_ns, video_codec, audio_codec, width, height, duration_seconds, probe_status, probe_error, discovered_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))", (location_id, relative_path, episode_id, file_size, modified_ns, *values, probe_status, probe_error, discovered_at))
+            self.connection.execute("INSERT INTO media_files(location_id, relative_path, episode_id, file_size, modified_ns, device_id, inode, video_codec, audio_codec, width, height, duration_seconds, probe_status, probe_error, discovered_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))", (location_id, relative_path, episode_id, file_size, modified_ns, device_id, inode, *values, probe_status, probe_error, discovered_at))
         else:
-            self.connection.execute("UPDATE media_files SET episode_id = ?, file_size = ?, modified_ns = ?, video_codec = ?, audio_codec = ?, width = ?, height = ?, duration_seconds = ?, probe_status = ?, probe_error = ?, discovered_at = COALESCE(?, discovered_at, CURRENT_TIMESTAMP) WHERE media_file_id = ?", (episode_id, file_size, modified_ns, *values, probe_status, probe_error, discovered_at, previous["media_file_id"]))
+            self.connection.execute("UPDATE media_files SET episode_id = ?, file_size = ?, modified_ns = ?, device_id = ?, inode = ?, video_codec = ?, audio_codec = ?, width = ?, height = ?, duration_seconds = ?, probe_status = ?, probe_error = ?, discovered_at = COALESCE(?, discovered_at, CURRENT_TIMESTAMP) WHERE media_file_id = ?", (episode_id, file_size, modified_ns, device_id, inode, *values, probe_status, probe_error, discovered_at, previous["media_file_id"]))
     def remove_stale_files(self, location_id: str, seen_paths: set[str]) -> int:
         rows = self.connection.execute("SELECT media_file_id, relative_path FROM media_files WHERE location_id = ?", (location_id,)).fetchall()
         stale_ids = [row["media_file_id"] for row in rows if row["relative_path"] not in seen_paths]
         self.connection.executemany("DELETE FROM media_files WHERE media_file_id = ?", ((item,) for item in stale_ids))
         self.connection.execute("DELETE FROM episodes WHERE episode_id NOT IN (SELECT episode_id FROM media_files)")
-        self.connection.execute("DELETE FROM anime WHERE anime_id NOT IN (SELECT anime_id FROM episodes)")
         return len(stale_ids)
+    def remove_path(self, location_id: str, relative_path: str) -> int:
+        """Remove one file or every indexed child of a removed directory."""
+        rows = self.connection.execute(
+            "SELECT media_file_id, relative_path FROM media_files WHERE location_id = ?",
+            (location_id,),
+        ).fetchall()
+        prefix = relative_path.rstrip("/") + "/"
+        stale = [row["media_file_id"] for row in rows
+                 if row["relative_path"] == relative_path or row["relative_path"].startswith(prefix)]
+        self.connection.executemany("DELETE FROM media_files WHERE media_file_id = ?", ((item,) for item in stale))
+        self.connection.execute("DELETE FROM episodes WHERE episode_id NOT IN (SELECT episode_id FROM media_files)")
+        return len(stale)
     def commit(self) -> None: self.connection.commit()
-    def record_launch(self, anime_id: int, episode_id: int) -> None:
+    def record_launch(self, anime_id: int, episode_id: int, location_id: str = "default") -> None:
         """Persist a user-initiated playback attempt owned by Seru.
 
         This deliberately does not read Celluloid or mpv resume state.  It is
         the small, reliable history used by the later Home view.
         """
+        row = self.connection.execute(
+            """SELECT a.title, e.season_number, e.episode_number,
+                      e.episode_end_number, e.is_movie, m.relative_path
+               FROM anime a JOIN episodes e ON e.anime_id=a.anime_id
+               JOIN media_files m ON m.episode_id=e.episode_id
+               WHERE a.anime_id=? AND e.episode_id=? AND m.location_id=?""",
+            (anime_id, episode_id, location_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError("This media item is no longer in the selected library.")
         self.connection.execute(
             "INSERT INTO launches(anime_id, episode_id) VALUES (?, ?)",
             (anime_id, episode_id),
+        )
+        self.connection.execute(
+            """INSERT INTO launch_history
+               (location_id, anime_id, title, season_number, episode_number,
+                episode_end_number, is_movie, relative_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (location_id, anime_id, row["title"], row["season_number"], row["episode_number"],
+             row["episode_end_number"], row["is_movie"], row["relative_path"]),
         )
         self.connection.commit()
     def set_favorite(self, anime_id: int, favorite: bool) -> None:
@@ -159,19 +222,16 @@ class LibraryRepository:
     def home_dashboard(self, location_id: str) -> tuple[list[sqlite3.Row], list[sqlite3.Row]]:
         """Return the launch and discovery data used by Home, without scanning."""
         continue_watching = self.connection.execute(
-            """SELECT a.title, e.season_number, e.episode_number, e.episode_end_number,
-                      e.is_movie, m.relative_path, l.timestamp
-               FROM launches AS l
-               JOIN anime AS a ON a.anime_id = l.anime_id
-               JOIN episodes AS e ON e.episode_id = l.episode_id
-               JOIN media_files AS m ON m.episode_id = e.episode_id
-               WHERE m.location_id = ?
-                 AND l.launch_id = (
-                     SELECT newer.launch_id FROM launches AS newer
-                     WHERE newer.anime_id = l.anime_id
-                     ORDER BY newer.timestamp DESC, newer.launch_id DESC LIMIT 1
+            """SELECT title, season_number, episode_number, episode_end_number,
+                      is_movie, relative_path, timestamp
+               FROM launch_history AS l
+               WHERE location_id = ?
+                 AND history_id = (
+                     SELECT newer.history_id FROM launch_history AS newer
+                     WHERE newer.location_id=l.location_id AND newer.anime_id=l.anime_id
+                     ORDER BY newer.timestamp DESC, newer.history_id DESC LIMIT 1
                  )
-               ORDER BY l.timestamp DESC, l.launch_id DESC LIMIT 10""",
+               ORDER BY timestamp DESC, history_id DESC LIMIT 10""",
             (location_id,),
         ).fetchall()
         recently_added = self.connection.execute(

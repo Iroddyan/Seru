@@ -9,10 +9,14 @@ VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".webm", ".m4v", ".mov"}
 MOVIE_SIZE_THRESHOLD = 800 * 1024 * 1024
 ABSOLUTE_NUMBERING_SHOWS = {"Bleach", "Bleach; Thousand-Year Blood War"}
 FORCE_MOVIE_FOLDERS = {("Jujutsu Kaisen", "Season 4 - Jujutsu Kaisen 0")}
+FORCE_EPISODE_SHOWS = {"Pluto"}
+FORCE_MOVIE_SHOWS = {"Cosmic Princess Kaguya", "Sword of the Stranger", "Your Name"}
 MANUAL_REVIEW_FOLDER = "_Needs Manual Sorting"
 SEASON_FOLDER_PATTERN = re.compile(r"^(?:season|cour|s)\s*0*(\d+)\b", re.I)
 SEASON_IN_FILENAME_PATTERN = re.compile(r"\b(?:season|s)\s*0*(\d{1,2})(?=\b|e)", re.I)
 SEASON_SUFFIX_PATTERN = re.compile(r"(?:^|[\s._-])(?:season|cour)\s*0*(\d+)\s*$", re.I)
+COUR_EPISODE_RANGE_PATTERN = re.compile(r"^cour\s*\d+\b.*?\[\s*episodes?\s*(\d+)\s*[-–—]\s*(\d+)\s*\]", re.I)
+COUR_EPISODE_RANGE_PATTERN = re.compile(r"^cour\s*\d+\b.*?\[\s*episodes?\s*(\d+)\s*[-–—]\s*(\d+)\s*\]", re.I)
 
 @dataclass(frozen=True)
 class ParsedMedia:
@@ -74,6 +78,25 @@ def extract_episode_range(filename: str) -> tuple[int, int | None] | None:
                 return first, last
     episode = extract_episode_number(filename)
     return (episode, None) if episode is not None else None
+
+def cour_episode_range(folder: str) -> tuple[int, int] | None:
+    match = COUR_EPISODE_RANGE_PATTERN.match(folder.strip())
+    if not match:
+        return None
+    first, last = (int(value) for value in match.groups())
+    return (first, last) if first <= last else None
+
+def normalize_absolute_episode(number: int, limits: tuple[int, int] | None) -> int:
+    if limits is None:
+        return number
+    first, last = limits
+    if first <= number <= last:
+        return number
+    if first <= number - 366 <= last:
+        return number - 366
+    if 1 <= number <= last - first + 1:
+        return first + number - 1
+    return number
 
 def looks_like_show_dir(directory: Path) -> bool:
     if season_number(directory.name) is not None: return False
@@ -151,12 +174,22 @@ def parse_media_file(file_path: Path, anime_dir: Path) -> ParsedMedia:
     absolute_numbering = title in ABSOLUTE_NUMBERING_SHOWS
     forced_movie = any((title, folder) in FORCE_MOVIE_FOLDERS for folder in parent_folders)
     seasons = [number for folder in parent_folders if (number := season_number_in_subfolder(folder)) is not None]
-    if forced_movie or (not seasons and file_path.stat().st_size > MOVIE_SIZE_THRESHOLD):
+    episode_identity = extract_episode_range(file_path.name)
+    is_movie = title in FORCE_MOVIE_SHOWS or forced_movie or (
+        title not in FORCE_EPISODE_SHOWS and not seasons and episode_identity is None
+        and file_path.stat().st_size > MOVIE_SIZE_THRESHOLD
+    )
+    if is_movie:
         return ParsedMedia(title, None, None, None, True, False, None, absolute_numbering)
-    episode = extract_episode_range(file_path.name)
+    episode = episode_identity
     if episode is None:
         return ParsedMedia(title, None, None, None, False, True, "Could not confidently parse an episode number", absolute_numbering)
     episode_number, episode_end_number = episode
+    if title == "Bleach; Thousand-Year Blood War":
+        limits = next((value for folder in parent_folders if (value := cour_episode_range(folder))), None)
+        episode_number = normalize_absolute_episode(episode_number, limits)
+        if episode_end_number is not None:
+            episode_end_number = normalize_absolute_episode(episode_end_number, limits)
     effective_season = season_number_in_filename(file_path.name) or (seasons[0] if seasons else None)
     # Absolute-numbered shows accept optional S## source tokens but persist
     # their canonical identity as E### only, avoiding season-token conflicts.

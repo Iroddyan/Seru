@@ -14,10 +14,11 @@ def main() -> int:
     parser.add_argument("library_root", nargs="?", default=os.environ.get("SERU_LIBRARY_ROOT", DEFAULT_LIBRARY_ROOT))
     parser.add_argument("--database", type=Path, default=default_database_path())
     parser.add_argument("--location-id", default="default", help="Stable identifier for this configured library location.")
+    parser.add_argument("--library-type", choices=("anime", "tv", "movies", "cartoons"), default="anime")
     args = parser.parse_args()
     repository = LibraryRepository(args.database)
     try:
-        result = LibraryScanner(repository, Path(args.library_root), args.location_id).scan()
+        result = LibraryScanner(repository, Path(args.library_root), args.location_id, args.library_type).scan()
         counts = repository.counts(args.location_id)
     finally:
         repository.close()
