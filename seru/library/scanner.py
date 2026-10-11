@@ -117,7 +117,11 @@ class LibraryScanner:
             return self.library_root / dirs[0]
         # Legacy collection/show layout: collection/show/season/file.
         if len(dirs) > 2 and self._is_season(dirs[2]):
-            return self.library_root / dirs[1]
+            # Keep the collection component in the path.  In particular,
+            # Completed/Show/Season and Needs Repair/Show/Season both live
+            # below the configured library root; dropping dirs[0] makes
+            # parse_media_file() reject every episode as outside title_dir.
+            return self.library_root / dirs[0] / dirs[1]
         # When a direct root folder contains only season-like subfolders, it is a title.
         first = self.library_root / dirs[0]
         try:
@@ -129,10 +133,10 @@ class LibraryScanner:
         # Common intake/collection names and collection parents with nested seasons.
         collection_names = {"binged", "watching", "watching - finished downloads",
                             "watching - unfinished downloads", "downloads", "downloads & unorganized",
-                            "incomplete", "complete", "completed", "collection", "library"}
+                            "incomplete", "complete", "completed", "needs repair", "collection", "library"}
         if len(dirs) > 1 and (dirs[0].casefold() in collection_names or
                               (len(dirs) > 2 and self._is_season(dirs[2]))):
-            return self.library_root / dirs[1]
+            return self.library_root / dirs[0] / dirs[1]
         return first
     def _scan_file(self, file_path: Path, anime_dir: Path, seen_paths: set[str], result: ScanResult,
                    is_loose_file: bool = False) -> None:
